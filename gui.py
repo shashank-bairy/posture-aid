@@ -64,6 +64,7 @@ class PostureAidApplication:
         win = tk.Toplevel()
         win.wm_title("Settings")
         win.geometry("300x120")
+        win.resizable(0, 0)
 
         frame_x = tk.Frame(win)
 
