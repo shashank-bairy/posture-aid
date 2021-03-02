@@ -21,12 +21,12 @@ class PostureAidApplication:
         self.output_path = output_path  # store output path
         self.current_image = None  # current image from the camera
         self.finish = False
+        self.running = False
+        self.pad_x = 30
+        self.pad_y = 30
+        self.correct_pos = (0, 0, 0, 0)
         self.wave_obj = sa.WaveObject.from_wave_file(
             './data/audio/alarm_tone.wav')
-        self.pad = 20
-        _, frame = self.vs.read()
-        frame = cv2.flip(frame, 1)
-        self.correct_pos = self.get_pos_from_frame(frame)
 
         self.root = tk.Tk()
         self.root.title("Posture Aid")  # set window title
@@ -34,25 +34,69 @@ class PostureAidApplication:
         self.root.protocol('WM_DELETE_WINDOW', self.destructor)
 
         self.panel = tk.Label(self.root)  # initialize image panel
-        self.panel.pack(padx=10, pady=10)
+        self.panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        # create a button, that when pressed, will take the current frame and save it to file
-        btn = tk.Button(self.root, text="Snapshot!",
-                        command=self.take_snapshot)
-        btn.pack(fill="both", expand=True, padx=10, pady=10)
+        self.startBtn = tk.Button(
+            self.root, text="Start", command=self.start_running)
+        self.startBtn.pack(fill=tk.X, side=tk.LEFT,
+                           expand=True, padx=10, pady=10)
 
-        self.label = tk.Label(self.root, text="Padding")
-        self.label.pack(side=tk.LEFT)
+        self.stopBtn = tk.Button(
+            self.root, text="Stop", command=self.stop_running)
+        self.stopBtn.pack(fill=tk.X, side=tk.LEFT,
+                          expand=True, padx=10, pady=10)
 
-        self.pad_input = tk.Spinbox(self.root, from_=30, to=50)
-        self.pad_input.pack(side=tk.LEFT)
+        self.settingsBtn = tk.Button(
+            self.root, text="Settings", command=self.show_settings)
+        self.settingsBtn.pack(fill=tk.X, side=tk.LEFT,
+                              expand=True, padx=10, pady=10)
 
         # start a self.video_loop that constantly pools the video sensor
         # for the most recently read frame
         self.video_loop()
 
-    def reset_head_pos(self):
-        pass
+    def exit_settings(self, win, pad_x, pad_y):
+        self.pad_x = pad_x
+        self.pad_y = pad_y
+        win.destroy()
+
+    def show_settings(self):
+        win = tk.Toplevel()
+        win.wm_title("Settings")
+        win.geometry("300x120")
+
+        frame_x = tk.Frame(win)
+
+        label_x = tk.Label(frame_x, text="Padding X")
+        label_x.pack(fill="both", expand=True, side=tk.LEFT)
+
+        pad_x = tk.Spinbox(frame_x, from_=30, to=50)
+        pad_x.pack(fill="both", expand=True, side=tk.LEFT)
+
+        frame_x.pack(fill="both", padx=10, pady=10)
+
+        frame_y = tk.Frame(win)
+
+        label_y = tk.Label(frame_y, text="Padding Y")
+        label_y.pack(fill="both", expand=True, side=tk.LEFT)
+
+        pad_y = tk.Spinbox(frame_y, from_=30, to=50)
+        pad_y.pack(fill="both", expand=True, side=tk.LEFT)
+
+        frame_y.pack(fill="both", padx=10, pady=10)
+
+        btn = tk.Button(win, text="Okay", command=lambda: self.exit_settings(
+            win, pad_x.get(), pad_y.get()))
+        btn.pack(fill=tk.X, expand=True, padx=10, pady=10)
+
+        win.mainloop()
+
+    def start_running(self):
+        self.running = True
+
+    def stop_running(self):
+        self.running = False
+        self.finish = True
 
     def play_alarm(self):
         play_obj = None
@@ -84,26 +128,31 @@ class PostureAidApplication:
         frame = cv2.flip(frame, 1)
         if ok:  # frame captured without any errors
             current_pos = self.get_pos_from_frame(frame)
+
+            pad_x = int(self.pad_x)
+            pad_y = int(self.pad_y)
+
+            if self.running:
+                t = None
+                if not check_head_within_boundary(self.correct_pos, current_pos, pad_x, pad_y):
+                    if self.finish:
+                        self.finish = False
+                        t = threading.Thread(target=self.play_alarm)
+                        t.start()
+                else:
+                    if not self.finish:
+                        self.finish = True
+                        if t:
+                            t.join()
+            else:
+                self.correct_pos = current_pos
+
             (fx, fy, fw, fh) = self.correct_pos
             (x, y, w, h) = current_pos
-
-            t = None
-            pad = int(self.pad_input.get())
-            if not check_head_within_boundary(self.correct_pos, current_pos, pad):
-                if self.finish:
-                    self.finish = False
-                    t = threading.Thread(target=self.play_alarm)
-                    t.start()
-            else:
-                if not self.finish:
-                    self.finish = True
-                    if t:
-                        t.join()
-
             frame = cv2.rectangle(
                 frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-            frame = cv2.rectangle(frame, (fx-pad, fy-pad),
-                                  (fx+fw+pad, fy+fh+pad), (255, 0, 0), 2)
+            frame = cv2.rectangle(frame, (fx-pad_x, fy-pad_y),
+                                  (fx+fw+pad_x, fy+fh+pad_y), (0, 0, 255), 2)
 
             # convert colors from BGR to RGBA
             cv2image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -112,17 +161,9 @@ class PostureAidApplication:
             imgtk = ImageTk.PhotoImage(image=self.current_image)
             self.panel.imgtk = imgtk  # anchor imgtk so it does not be deleted by garbage-collector
             self.panel.config(image=imgtk)  # show the image
+
         # call the same function after 30 milliseconds
         self.root.after(30, self.video_loop)
-
-    def take_snapshot(self):
-        """ Take snapshot and save it to the file """
-        ts = datetime.datetime.now()  # grab the current timestamp
-        filename = "{}.jpg".format(ts.strftime(
-            "%Y-%m-%d_%H-%M-%S"))  # construct filename
-        p = os.path.join(self.output_path, filename)  # construct output path
-        self.current_image.save(p, "JPEG")  # save image as jpeg file
-        print("[INFO] saved {}".format(filename))
 
     def destructor(self):
         """ Destroy the root object and release all resources """
