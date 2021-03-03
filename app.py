@@ -51,8 +51,6 @@ class PostureAidApplication:
         self.settingsBtn.pack(fill=tk.X, side=tk.LEFT,
                               expand=True, padx=10, pady=10)
 
-        # start a self.video_loop that constantly pools the video sensor
-        # for the most recently read frame
         self.video_loop()
 
     def exit_settings(self, win, pad_x, pad_y):
@@ -68,7 +66,7 @@ class PostureAidApplication:
 
         frame_x = tk.Frame(win)
 
-        label_x = tk.Label(frame_x, text="Padding X")
+        label_x = tk.Label(frame_x, text="Boundary width")
         label_x.pack(fill="both", expand=True, side=tk.LEFT)
 
         pad_x = tk.Spinbox(frame_x, from_=30, to=50)
@@ -78,7 +76,7 @@ class PostureAidApplication:
 
         frame_y = tk.Frame(win)
 
-        label_y = tk.Label(frame_y, text="Padding Y")
+        label_y = tk.Label(frame_y, text="Boundary height")
         label_y.pack(fill="both", expand=True, side=tk.LEFT)
 
         pad_y = tk.Spinbox(frame_y, from_=30, to=50)
