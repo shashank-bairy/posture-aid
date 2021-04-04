@@ -1,64 +1,59 @@
-from PIL import Image, ImageTk
 import tkinter as tk
-import argparse
-import datetime
-import numpy as np
-import simpleaudio as sa
-import threading
 import cv2
-import os
-from utils import *
+import torch
+import posenet
+
+from config import PostureAidConfig
+from alarm import Alarm
+from utils import check_head_within_boundary, draw_boxes
 
 
 class PostureAidApplication:
-    def __init__(self, output_path="./"):
+    def __init__(self):
         """ Initialize application which uses OpenCV + Tkinter. It displays
             a video stream in a Tkinter window and stores current snapshot on disk """
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-        self.vs = cv2.VideoCapture(0)
-        self.output_path = output_path  # store output path
-        self.current_image = None  # current image from the camera
-        self.finish = False
-        self.running = False
-        self.pad_x = 30
-        self.pad_y = 30
-        self.correct_pos = (0, 0, 0, 0)
-        self.wave_obj = sa.WaveObject.from_wave_file(
-            './data/audio/alarm_tone.wav')
+        self._running = False
+        self._vs = cv2.VideoCapture(PostureAidConfig.config("CAM_ID"))
+        self._pad_x = PostureAidConfig.config("PAD_X")
+        self._pad_y = PostureAidConfig.config("PAD_Y")
+        self._correct_pos = PostureAidConfig.config("CORRECT_POS")
+        self._alarm = Alarm(PostureAidConfig.config("ALARM_FILE"))
+        self._model = self._get_model()
+        self._output_stride = self._model.output_stride
 
         self.root = tk.Tk()
-        self.root.title("Posture Aid")  # set window title
-        # self.destructor function gets fired when the window is closed
-        self.root.protocol('WM_DELETE_WINDOW', self.destructor)
+        self.root.title("Posture Aid")
 
-        self.panel = tk.Label(self.root)  # initialize image panel
+        self.root.protocol('WM_DELETE_WINDOW', self._destructor)
+
+        self.panel = tk.Label(self.root)
         self.panel.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         self.startBtn = tk.Button(
-            self.root, text="Start", command=self.start_running)
+            self.root, text="Start", command=self._start_running)
         self.startBtn.pack(fill=tk.X, side=tk.LEFT,
                            expand=True, padx=10, pady=10)
 
         self.stopBtn = tk.Button(
-            self.root, text="Stop", command=self.stop_running)
+            self.root, text="Stop", command=self._stop_running)
         self.stopBtn.pack(fill=tk.X, side=tk.LEFT,
                           expand=True, padx=10, pady=10)
 
         self.settingsBtn = tk.Button(
-            self.root, text="Settings", command=self.show_settings)
+            self.root, text="Settings", command=self._show_settings)
         self.settingsBtn.pack(fill=tk.X, side=tk.LEFT,
                               expand=True, padx=10, pady=10)
 
-        self.video_loop()
+        self._video_loop()
+    
+    def _get_model(self):
+        model = posenet.load_model(PostureAidConfig.config("MODEL"))
+        if torch.cuda.is_available():
+            model = model.cuda()
+        return model
 
-    def exit_settings(self, win, pad_x, pad_y):
-        self.pad_x = pad_x
-        self.pad_y = pad_y
-        win.destroy()
-
-    def show_settings(self):
+    def _show_settings(self):
         win = tk.Toplevel()
         win.wm_title("Settings")
         win.geometry("300x120")
@@ -84,102 +79,83 @@ class PostureAidApplication:
 
         frame_y.pack(fill="both", padx=10, pady=10)
 
-        btn = tk.Button(win, text="Okay", command=lambda: self.exit_settings(
+        btn = tk.Button(win, text="Okay", command=lambda: self._exit_settings(
             win, pad_x.get(), pad_y.get()))
         btn.pack(fill=tk.X, expand=True, padx=10, pady=10)
 
         win.mainloop()
+    
+    def _exit_settings(self, win, pad_x, pad_y):
+        self._pad_x = int(pad_x)
+        self._pad_y = int(pad_y)
+        win.destroy()
 
-    def start_running(self):
-        self.running = True
+    def _start_running(self):
+        self._running = True
 
-    def stop_running(self):
-        self.running = False
-        self.finish = True
+    def _stop_running(self):
+        self._running = False
+        self._alarm.stop()
 
-    def play_alarm(self):
-        play_obj = None
-        while True:
-            if self.finish:
-                play_obj.stop()
-                break
-            if not play_obj or not play_obj.is_playing():
-                play_obj = self.wave_obj.play()
-
-    def get_pos_from_frame(self, frame):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(
-            gray, scaleFactor=1.1, minNeighbors=5)
-
-        max_area = 0
-        area = 0
-        pos = (0, 0, 0, 0)
-        for (x, y, w, h) in faces:
-            area = h*w
-            if area > max_area:
-                max_area = area
-                pos = (x, y, w, h)
-        return pos
-
-    def video_loop(self):
+    def _video_loop(self):
         """ Get frame from the video stream and show it in Tkinter """
-        ok, frame = self.vs.read()  # read frame from video stream
-        frame = cv2.flip(frame, 1)
-        if ok:  # frame captured without any errors
-            current_pos = self.get_pos_from_frame(frame)
 
-            pad_x = int(self.pad_x)
-            pad_y = int(self.pad_y)
+        input_image, display_image, output_scale = posenet.read_cap(
+            self._vs,
+            scale_factor=PostureAidConfig.config("SCALE_FACTOR"),
+            output_stride=self._output_stride
+        )
 
-            if self.running:
-                t = None
-                if not check_head_within_boundary(self.correct_pos, current_pos, pad_x, pad_y):
-                    if self.finish:
-                        self.finish = False
-                        t = threading.Thread(target=self.play_alarm)
-                        t.start()
-                else:
-                    if not self.finish:
-                        self.finish = True
-                        if t:
-                            t.join()
+        with torch.no_grad():
+            if torch.cuda.is_available():
+                input_image = torch.Tensor(input_image).cuda()
             else:
-                self.correct_pos = current_pos
+                input_image = torch.Tensor(input_image)
 
-            (fx, fy, fw, fh) = self.correct_pos
-            (x, y, w, h) = current_pos
-            frame = cv2.rectangle(
-                frame, (x, y), (x+w, y+h), (255, 0, 0), 2)
-            frame = cv2.rectangle(frame, (fx-pad_x, fy-pad_y),
-                                  (fx+fw+pad_x, fy+fh+pad_y), (0, 0, 255), 2)
+            heatmaps_result, offsets_result, displacement_fwd_result, displacement_bwd_result = self._model(input_image)
 
-            # convert colors from BGR to RGBA
-            cv2image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            self.current_image = Image.fromarray(cv2image)
-            # # convert image for tkinter
-            imgtk = ImageTk.PhotoImage(image=self.current_image)
-            self.panel.imgtk = imgtk  # anchor imgtk so it does not be deleted by garbage-collector
-            self.panel.config(image=imgtk)  # show the image
+            pose_scores, keypoint_scores, keypoint_coords = posenet.decode_multiple_poses(
+                heatmaps_result.squeeze(0),
+                offsets_result.squeeze(0),
+                displacement_fwd_result.squeeze(0),
+                displacement_bwd_result.squeeze(0),
+                output_stride=self._output_stride,
+                max_pose_detections=10,
+                min_pose_score=0.15
+            )
+
+        keypoint_coords *= output_scale        
+        
+        current_pos = posenet.get_pos_from_img(
+            display_image, pose_scores, keypoint_scores, keypoint_coords,
+            min_pose_score=0.15, min_part_score=0.1
+        )
+
+        if self._running:
+            if not check_head_within_boundary(self._correct_pos, current_pos, self._pad_x, self._pad_y):
+                if not self._alarm.is_playing():
+                    self._alarm.play()
+            else:
+                if self._alarm.is_playing():
+                    self._alarm.stop()
+        else:
+            self._correct_pos = current_pos
+
+        imgtk = draw_boxes(display_image, self._correct_pos, current_pos, self._pad_x, self._pad_y)
+        self.panel.imgtk = imgtk
+        self.panel.config(image=imgtk)
 
         # call the same function after 30 milliseconds
-        self.root.after(30, self.video_loop)
+        self.root.after(50, self._video_loop)
 
-    def destructor(self):
+    def _destructor(self):
         """ Destroy the root object and release all resources """
         print("[INFO] closing...")
         self.root.destroy()
-        self.finish = True
-        self.vs.release()  # release web camera
-        cv2.destroyAllWindows()  # it is not mandatory in this application
+        self._vs.release()
+        cv2.destroyAllWindows()
 
 
-# construct the argument parse and parse the arguments
-ap = argparse.ArgumentParser()
-ap.add_argument("-o", "--output", default="./",
-                help="path to output directory to store snapshots (default: current folder")
-args = vars(ap.parse_args())
-
-# start the app
-print("[INFO] starting...")
-pba = PostureAidApplication(args["output"])
-pba.root.mainloop()
+if __name__ == "__main__":
+    app = PostureAidApplication()
+    app.root.mainloop()

@@ -18,12 +18,17 @@ It uses live camera feed to check if the position of your head is within the def
 
 6. The monitoring can be stopped by pressing the Stop option.
 
+## Video Demo
+
+[![PostureAid Demo](https://img.youtube.com/vi/gcaCTre5GGY/0.jpg)](http://www.youtube.com/watch?v=gcaCTre5GGY)
+
 ## Tech Stack
 
-- python
+- python3.8
 - tkinter
 - numpy
 - opencv
+- pytorch
 
 ## Setting up locally
 
@@ -44,6 +49,14 @@ It uses live camera feed to check if the position of your head is within the def
 5. Launch the application
 
    `python3 app.py`
+
+## Credits
+
+- The original PoseNet model, weights, code, etc. was created by Google and can be found at [posenet](https://github.com/tensorflow/tfjs-models/tree/master/posenet).
+
+- The port of model was created by Ross Wightman ([@rwightman](https://github.com/rwightman)) is in no way related to Google and it can be found at [posenet-pytorch](https://github.com/rwightman/posenet-pytorch).
+
+- The PostureAid application was created by myself and Sampan S Nayak ([@saoalo](https://github.com/saoalo)) using the port of PoseNet model by Ross Wightman ([@rwightman](https://github.com/rwightman)) present at [posenet-pytorch](https://github.com/rwightman/posenet-pytorch).
 
 ## Contributing
 
