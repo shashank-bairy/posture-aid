@@ -30,6 +30,14 @@ It uses live camera feed to check if the position of your head is within the def
 - opencv
 - pytorch
 
+## Working
+
+- Live webcam feed is taken and passes through PoseNet model. More information can be obtained [here](https://www.tensorflow.org/lite/examples/pose_estimation/overview).
+- Posenet model returns the coordinates of eyes, nose and ears.
+- These coordinates are are used to get the position of the face and establish boundaries for correct posture.
+- If the head moves out of the established boundary an alarm sound is played until the head is brought back within the boundary.
+- The size of the boundary can be adjusted in the settings menu.
+
 ## Setting up locally
 
 1. Create a python virtual environment and activate it.
